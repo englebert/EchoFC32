@@ -7,6 +7,7 @@
  * - https://medium.com/@reefwing/arduino-esc-tester-adding-dshot-a0c3c0dd85c1
  * - https://www.swallenhardware.io/battlebots/2019/4/20/a-developers-guide-to-dshot-escs
  * - https://oscarliang.com/setup-turtle-mode-flip-over-after-crash/
+ * - https://github.com/dmrlawson/raspberrypi-dshot
  */
 
 #include "freertos/FreeRTOS.h"
@@ -17,6 +18,10 @@
 bool armed = false;
 bool command_trigger = false;
 uint16_t command_val = 0;
+
+// Testing
+bool reverse_esc = false;
+bool forward_esc = false;
 
 /**** ESC Related ****/
 TaskHandle_t TaskESC;
@@ -52,7 +57,6 @@ uint16_t esc1_val, esc2_val, esc3_val, esc4_val;
 
 /**** CLI Related ****/
 String serial_cmd;
-
 
 
 void escInit() {
@@ -112,6 +116,7 @@ void txDshot(uint8_t esc_id, uint16_t value, bool telemetry) {
     // Bit length (total timing period) is 1.67 microseconds (T0H + T0L or T1H + T1L).
     // For a bit to be 1, the pulse width is 1250 nanoseconds (T1H – time the pulse is high for a bit value of ONE)
     // For a bit to be 0, the pulse width is 625 nanoseconds (T0H – time the pulse is high for a bit value of ZERO)
+    // Using DSHOT150 - As the beginning of the Proof Of Concept
     for(int i = 0; i < 16; i++) {
         if(dshot_packet & 0x8000) {
             if(esc_id == 1) {
@@ -178,17 +183,61 @@ void taskESC(void *pvParameters) {
     // Infinite loop
     while(true) {
         if(armed == true || command_trigger == true) {
+            if(reverse_esc && command_trigger) {
+                delay(9);
+                for(int i=10; i > 0; i--) {
+                    delay(1);
+                    txDshot(ESC1, 0, true);
+                    txDshot(ESC2, 0, true);
+                    txDshot(ESC3, 0, true);
+                    txDshot(ESC4, 0, true);
+                }
+                delay(1);
+                for(int i=10; i > 0; i--) {
+                    delay(1);
+                    txDshot(ESC1, 21, true);
+                    txDshot(ESC2, 21, true);
+                    txDshot(ESC3, 21, true);
+                    txDshot(ESC4, 21, true);
+                }
+                delay(1);
+                command_trigger = false;
+                reverse_esc = false;
+            }
+            if(forward_esc && command_trigger) {
+                delay(9);
+                for(int i=10; i > 0; i--) {
+                    delay(1);
+                    txDshot(ESC1, 0, true);
+                    txDshot(ESC2, 0, true);
+                    txDshot(ESC3, 0, true);
+                    txDshot(ESC4, 0, true);
+                }
+                delay(1);
+                for(int i=10; i > 0; i--) {
+                    delay(1);
+                    txDshot(ESC1, 20, true);
+                    txDshot(ESC2, 20, true);
+                    txDshot(ESC3, 20, true);
+                    txDshot(ESC4, 20, true);
+                }
+                delay(1);
+                command_trigger = false;
+                forward_esc = false;
+            }
+
             if(command_trigger) {
-                for(int i=6; i > 0; i--) {
+                delay(9);
+                for(int i=10; i > 0; i--) {
+                    delay(1);
                     txDshot(ESC1, command_val, true);
                     txDshot(ESC2, command_val, true);
                     txDshot(ESC3, command_val, true);
                     txDshot(ESC4, command_val, true);
-                    delay(1);
                 }
+                delay(1);
                 command_trigger = false;
             } else {
-                // void txDshot(uint8_t esc_id, uint16_t value, bool telemetry) {
                 txDshot(ESC1, esc1_val, false);
                 txDshot(ESC2, esc2_val, false);
                 txDshot(ESC3, esc3_val, false);
@@ -233,11 +282,23 @@ void setup() {
 
 void loop() {
     Serial.printf("ESC Speed: STOP\n");
+    esc1_val = 50;
+    esc2_val = 50;
+    esc3_val = 50;
+    esc4_val = 50;
+
     delay(5000);
+    armed = true;
+    esc1_val = 0;
+    esc2_val = 0;
+    esc3_val = 0;
+    esc4_val = 0;
     
+    Serial.println("Started!");
+    delay(3000);
+
     command_trigger = true;
     command_val = 21;
-
 
     esc1_val = 58;
     esc2_val = 58;
@@ -245,8 +306,8 @@ void loop() {
     esc4_val = 58;
     armed = true;
 
-    Serial.println("Started!");
-    delay(3000);
+    delay(200);
+/*
     for(int i = 1; i < 100; i++) {
         int val = i * 10 + 48;
         esc1_val = val;
@@ -267,14 +328,13 @@ void loop() {
 
         delay(100);
     } 
-
     esc1_val = 0;
     esc2_val = 0;
     esc3_val = 0;
     esc4_val = 0;
     armed = false;
-
-    Serial.println("Bye!");
+*/
+    Serial.println("CLI READY!");
     while(true) {
         if(Serial.available() > 0) {
             serial_cmd = Serial.readStringUntil('\n');
@@ -286,12 +346,43 @@ void loop() {
                 esc3_val = 200;
                 esc4_val = 200;
                 armed = true;
+                Serial.println("spin10");
+            } else if(serial_cmd == "spin20") {
+                esc1_val = 400;
+                esc2_val = 400;
+                esc3_val = 400;
+                esc4_val = 400;
+                armed = true;
+                Serial.println("spin20");
             } else if(serial_cmd == "stop") {
-                esc1_val = 48;
-                esc2_val = 48;
-                esc3_val = 48;
-                esc4_val = 48;
+                esc1_val = 68;
+                esc2_val = 68;
+                esc3_val = 68;
+                esc4_val = 68;
+                armed = true;
+                Serial.println("stop");
+            } else if(serial_cmd == "halt") {
+                esc1_val = 0;
+                esc2_val = 0;
+                esc3_val = 0;
+                esc4_val = 0;
+                armed = true;
+                Serial.println("halt");
+            } else if(serial_cmd == "reset") {
+                esc1_val = 0;
+                esc2_val = 0;
+                esc3_val = 0;
+                esc4_val = 0;
+                command_trigger = true;
                 armed = false;
+                Serial.println("reset");
+            } else if(serial_cmd == "disarm") {
+                esc1_val = 0;
+                esc2_val = 0;
+                esc3_val = 0;
+                esc4_val = 0;
+                armed = false;
+                Serial.println("disarm");
             } else if(serial_cmd == "reverse") {
                 esc1_val = 21;
                 esc2_val = 21;
@@ -299,6 +390,7 @@ void loop() {
                 esc4_val = 21;
                 command_trigger = true;
                 armed = false;
+                Serial.println("reverse");
             } else if(serial_cmd == "forward") {
                 esc1_val = 20;
                 esc2_val = 20;
@@ -306,6 +398,138 @@ void loop() {
                 esc4_val = 20;
                 command_trigger = true;
                 armed = false;
+                Serial.println("forward");
+            } else if(serial_cmd == "test") {
+                esc1_val = 400;
+                esc2_val = 400;
+                esc3_val = 400;
+                esc4_val = 400;
+                armed = true;
+                Serial.println("Test before delay");
+                delay(10000);
+                Serial.println("Test after delay");
+                esc1_val = 48;
+                esc2_val = 48;
+                esc3_val = 48;
+                esc4_val = 48;
+            } else if(serial_cmd == "r1") {
+                reverse_esc = true;
+                command_trigger = true;
+                Serial.println("r1");
+            } else if(serial_cmd == "f1") {
+                forward_esc = true;
+                command_trigger = true;
+                Serial.println("f1");
+            } else if(serial_cmd == "demo") {
+                esc1_val = 0;
+                esc2_val = 0;
+                esc3_val = 0;
+                esc4_val = 0;
+                armed = true;
+                delay(50);
+
+                for(int i = 10; i < 40; i++) {
+                    int val = i * 10 + 48;
+                    esc1_val = val;
+                    esc2_val = val;
+                    esc3_val = val;
+                    esc4_val = val;
+                    Serial.printf("ESC Speed: %i\n", i);
+            
+                    delay(100);
+                }    
+                for(int i = 40; i > 10; i--) {
+                    int val = i * 10 + 48;
+                    esc1_val = val;
+                    esc2_val = val;
+                    esc3_val = val;
+                    esc4_val = val;
+                    Serial.printf("ESC Speed: %i\n", i);
+            
+                    delay(100);
+                } 
+                esc1_val = 100;
+                esc2_val = 100;
+                esc3_val = 100;
+                esc4_val = 100;
+                armed = true;
+            } else if(serial_cmd == "rdemo") {
+                Serial.println("rdemo");
+                reverse_esc = true;
+                command_trigger = true;
+                delay(20);
+
+                esc1_val = 0;
+                esc2_val = 0;
+                esc3_val = 0;
+                esc4_val = 0;
+                armed = true;
+                delay(50);
+
+                for(int i = 10; i < 40; i++) {
+                    int val = i * 10 + 48;
+                    esc1_val = val;
+                    esc2_val = val;
+                    esc3_val = val;
+                    esc4_val = val;
+                    Serial.printf("ESC Speed: %i\n", i);
+            
+                    delay(100);
+                }    
+                for(int i = 40; i > 10; i--) {
+                    int val = i * 10 + 48;
+                    esc1_val = val;
+                    esc2_val = val;
+                    esc3_val = val;
+                    esc4_val = val;
+                    Serial.printf("ESC Speed: %i\n", i);
+            
+                    delay(100);
+                } 
+                esc1_val = 100;
+                esc2_val = 100;
+                esc3_val = 100;
+                esc4_val = 100;
+                armed = true;
+
+            } else if(serial_cmd == "fdemo") {
+                Serial.println("fdemo");
+                forward_esc = true;
+                command_trigger = true;
+                delay(20);
+
+                esc1_val = 0;
+                esc2_val = 0;
+                esc3_val = 0;
+                esc4_val = 0;
+                armed = true;
+                delay(50);
+
+                for(int i = 10; i < 40; i++) {
+                    int val = i * 10 + 48;
+                    esc1_val = val;
+                    esc2_val = val;
+                    esc3_val = val;
+                    esc4_val = val;
+                    Serial.printf("ESC Speed: %i\n", i);
+            
+                    delay(100);
+                }    
+                for(int i = 40; i > 10; i--) {
+                    int val = i * 10 + 48;
+                    esc1_val = val;
+                    esc2_val = val;
+                    esc3_val = val;
+                    esc4_val = val;
+                    Serial.printf("ESC Speed: %i\n", i);
+            
+                    delay(100);
+                } 
+                esc1_val = 100;
+                esc2_val = 100;
+                esc3_val = 100;
+                esc4_val = 100;
+                armed = true;
             }
         } 
     }
