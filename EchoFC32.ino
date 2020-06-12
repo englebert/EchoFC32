@@ -25,17 +25,6 @@ bool forward_esc = false;
 
 /**** ESC Related ****/
 TaskHandle_t TaskESC;
-rmt_obj_t* esc1 = NULL;
-rmt_obj_t* esc2 = NULL;
-rmt_obj_t* esc3 = NULL;
-rmt_obj_t* esc4 = NULL;
-rmt_data_t esc1_dshotPacket[16];
-rmt_data_t esc2_dshotPacket[16];
-rmt_data_t esc3_dshotPacket[16];
-rmt_data_t esc4_dshotPacket[16];
-
-float esc1Tick, esc2Tick, esc3Tick, esc4Tick;
-uint16_t esc1_val, esc2_val, esc3_val, esc4_val; 
 
 #define ESC1 1
 #define ESC2 2
@@ -53,51 +42,39 @@ uint16_t esc1_val, esc2_val, esc3_val, esc4_val;
 #define PIN_ESC3 14
 #define PIN_ESC4 27
 #define ESC_SAMPLE_RATE 12.5                  // 12.5ns sample rate. Based on 80MHz
+#define ESC_T0L 400
+#define ESC_T0H 134
+#define ESC_T1L 199
+#define ESC_T1H 335
+#define ESC_MAX_COUNT 4
 
+rmt_data_t  esc_dshotPacket[16];
+rmt_obj_t*  esc[]               = {NULL, NULL, NULL, NULL};
+uint8_t     esc_pin[]           = {PIN_ESC1, PIN_ESC2, PIN_ESC3, PIN_ESC4};
+uint16_t    esc_val[]           = {0, 0, 0, 0};
 
 /**** CLI Related ****/
 String serial_cmd;
 
 
 void escInit() {
-    if((esc1 = rmtInit(PIN_ESC1, true, RMT_MEM_64)) == NULL) {
-        Serial.println("ESC1: FAILED");
-    }
-    if((esc2 = rmtInit(PIN_ESC2, true, RMT_MEM_64)) == NULL) {
-        Serial.println("ESC2: FAILED");
-    }
-    if((esc3 = rmtInit(PIN_ESC3, true, RMT_MEM_64)) == NULL) {
-        Serial.println("ESC3: FAILED");
-    }
-    if((esc4 = rmtInit(PIN_ESC4, true, RMT_MEM_64)) == NULL) {
-        Serial.println("ESC4: FAILED");
-    }
+    for(int i = 0; i < ESC_MAX_COUNT; i++) {
+        if((esc[i] = rmtInit(esc_pin[i], true, RMT_MEM_64)) == NULL)
+            Serial.printf("ESC [%i] FAILED!\n", i);
+        else
+            Serial.printf("ESC [%i] OK!\n", i);
 
-    esc1Tick = rmtSetTick(esc1, ESC_SAMPLE_RATE);
-    esc2Tick = rmtSetTick(esc2, ESC_SAMPLE_RATE);
-    esc3Tick = rmtSetTick(esc3, ESC_SAMPLE_RATE);
-    esc4Tick = rmtSetTick(esc4, ESC_SAMPLE_RATE);
-
-    Serial.printf("ESC1 Tick: %fns\n", esc1Tick);
-    Serial.printf("ESC2 Tick: %fns\n", esc2Tick);
-    Serial.printf("ESC3 Tick: %fns\n", esc3Tick);
-    Serial.printf("ESC4 Tick: %fns\n", esc4Tick);
-
-    esc1_val = 0;
-    esc2_val = 0;
-    esc3_val = 0;
-    esc4_val = 0;
+        float tick = rmtSetTick(esc[i], ESC_SAMPLE_RATE);
+        Serial.printf("ESC [%i] at PIN [%i] - Tick: %fns\n", i, esc_pin[i], tick);
+    }
 }
 
-
+// DSHOT Protocol to ESC. Very hyper sensitive on timing. One slight change in this section of the 
+// code will changed the behaviour of the timing. Every change on this txDshot must re-test all 
+// the possibilities.
 void txDshot(uint8_t esc_id, uint16_t value, bool telemetry) {
     uint16_t dshot_packet;
-
-    if(telemetry) {
-        dshot_packet = (value << 1) | 1;
-    } else {
-        dshot_packet = (value << 1) | 0;
-    }
+    dshot_packet = (value << 1) | telemetry;
 
     int csum = 0;
     int csum_data = dshot_packet;
@@ -118,64 +95,25 @@ void txDshot(uint8_t esc_id, uint16_t value, bool telemetry) {
     // For a bit to be 0, the pulse width is 625 nanoseconds (T0H – time the pulse is high for a bit value of ZERO)
     // Using DSHOT150 - As the beginning of the Proof Of Concept
     for(int i = 0; i < 16; i++) {
+        // T1H + T1L
         if(dshot_packet & 0x8000) {
-            if(esc_id == 1) {
-                esc1_dshotPacket[i].level0    = 1;
-                esc1_dshotPacket[i].duration0 = 400;
-                esc1_dshotPacket[i].level1    = 0;
-                esc1_dshotPacket[i].duration1 = 134;
-            } else if(esc_id == 2) {
-                esc2_dshotPacket[i].level0    = 1;
-                esc2_dshotPacket[i].duration0 = 400;
-                esc2_dshotPacket[i].level1    = 0;
-                esc2_dshotPacket[i].duration1 = 134;
-            } else if(esc_id == 3) {
-                esc3_dshotPacket[i].level0    = 1;
-                esc3_dshotPacket[i].duration0 = 400;
-                esc3_dshotPacket[i].level1    = 0;
-                esc3_dshotPacket[i].duration1 = 134;
-            } else if(esc_id == 4) {
-                esc4_dshotPacket[i].level0    = 1;
-                esc4_dshotPacket[i].duration0 = 400;
-                esc4_dshotPacket[i].level1    = 0;
-                esc4_dshotPacket[i].duration1 = 134;
-            }
+            esc_dshotPacket[i].level0    = 1;
+            esc_dshotPacket[i].duration0 = 400;
+            esc_dshotPacket[i].level1    = 0;
+            esc_dshotPacket[i].duration1 = 134;
+
+        // T0H + T0L
         } else {
-            if(esc_id == 1) {
-                esc1_dshotPacket[i].level0    = 1;
-                esc1_dshotPacket[i].duration0 = 199;
-                esc1_dshotPacket[i].level1    = 0;
-                esc1_dshotPacket[i].duration1 = 335;
-            } else if(esc_id == 2) {
-                esc2_dshotPacket[i].level0    = 1;
-                esc2_dshotPacket[i].duration0 = 199;
-                esc2_dshotPacket[i].level1    = 0;
-                esc2_dshotPacket[i].duration1 = 335;
-            } else if(esc_id == 3) {
-                esc3_dshotPacket[i].level0    = 1;
-                esc3_dshotPacket[i].duration0 = 199;
-                esc3_dshotPacket[i].level1    = 0;
-                esc3_dshotPacket[i].duration1 = 335;
-            } else if(esc_id == 4) {
-                esc4_dshotPacket[i].level0    = 1;
-                esc4_dshotPacket[i].duration0 = 199;
-                esc4_dshotPacket[i].level1    = 0;
-                esc4_dshotPacket[i].duration1 = 335;
-            }
+            esc_dshotPacket[i].level0    = 1;
+            esc_dshotPacket[i].duration0 = 199;
+            esc_dshotPacket[i].level1    = 0;
+            esc_dshotPacket[i].duration1 = 335;
         }
 
         dshot_packet <<= 1;
     }
 
-    if(esc_id == 1) {
-        rmtWrite(esc1, esc1_dshotPacket, 16);
-    } else if(esc_id == 2) {
-        rmtWrite(esc2, esc2_dshotPacket, 16);
-    } else if(esc_id == 3) {
-        rmtWrite(esc3, esc3_dshotPacket, 16);
-    } else if(esc_id == 4) {
-        rmtWrite(esc4, esc4_dshotPacket, 16);
-    }
+    rmtWrite(esc[esc_id - 1], esc_dshotPacket, 16);
 }
 
 
@@ -238,10 +176,10 @@ void taskESC(void *pvParameters) {
                 delay(1);
                 command_trigger = false;
             } else {
-                txDshot(ESC1, esc1_val, false);
-                txDshot(ESC2, esc2_val, false);
-                txDshot(ESC3, esc3_val, false);
-                txDshot(ESC4, esc4_val, false);
+                txDshot(ESC1, esc_val[0], false);
+                txDshot(ESC2, esc_val[1], false);
+                txDshot(ESC3, esc_val[2], false);
+                txDshot(ESC4, esc_val[3], false);
                 delay(1);
             }
         } else {
@@ -282,17 +220,17 @@ void setup() {
 
 void loop() {
     Serial.printf("ESC Speed: STOP\n");
-    esc1_val = 50;
-    esc2_val = 50;
-    esc3_val = 50;
-    esc4_val = 50;
+    esc_val[0] = 50;
+    esc_val[1] = 50;
+    esc_val[2] = 50;
+    esc_val[3] = 50;
 
     delay(5000);
     armed = true;
-    esc1_val = 0;
-    esc2_val = 0;
-    esc3_val = 0;
-    esc4_val = 0;
+    esc_val[0] = 0;
+    esc_val[1] = 0;
+    esc_val[2] = 0;
+    esc_val[3] = 0;
     
     Serial.println("Started!");
     delay(3000);
@@ -300,38 +238,38 @@ void loop() {
     command_trigger = true;
     command_val = 21;
 
-    esc1_val = 58;
-    esc2_val = 58;
-    esc3_val = 58;
-    esc4_val = 58;
+    esc_val[0] = 58;
+    esc_val[1] = 58;
+    esc_val[2] = 58;
+    esc_val[3] = 58;
     armed = true;
 
     delay(200);
 /*
     for(int i = 1; i < 100; i++) {
         int val = i * 10 + 48;
-        esc1_val = val;
-        esc2_val = val;
-        esc3_val = val;
-        esc4_val = val;
+        esc_val[0] = val;
+        esc_val[1] = val;
+        esc_val[2] = val;
+        esc_val[3] = val;
         Serial.printf("ESC Speed: %i\n", i);
 
         delay(100);
     }    
     for(int i = 100; i > 1; i--) {
         int val = i * 10 + 48;
-        esc1_val = val;
-        esc2_val = val;
-        esc3_val = val;
-        esc4_val = val;
+        esc_val[0] = val;
+        esc_val[1] = val;
+        esc_val[2] = val;
+        esc_val[3] = val;
         Serial.printf("ESC Speed: %i\n", i);
 
         delay(100);
     } 
-    esc1_val = 0;
-    esc2_val = 0;
-    esc3_val = 0;
-    esc4_val = 0;
+    esc_val[0] = 0;
+    esc_val[1] = 0;
+    esc_val[2] = 0;
+    esc_val[3] = 0;
     armed = false;
 */
     Serial.println("CLI READY!");
@@ -341,77 +279,77 @@ void loop() {
             serial_cmd.trim();
 
             if(serial_cmd == "spin10") {
-                esc1_val = 200;
-                esc2_val = 200;
-                esc3_val = 200;
-                esc4_val = 200;
+                esc_val[0] = 200;
+                esc_val[1] = 200;
+                esc_val[2] = 200;
+                esc_val[3] = 200;
                 armed = true;
                 Serial.println("spin10");
             } else if(serial_cmd == "spin20") {
-                esc1_val = 400;
-                esc2_val = 400;
-                esc3_val = 400;
-                esc4_val = 400;
+                esc_val[0] = 400;
+                esc_val[1] = 400;
+                esc_val[2] = 400;
+                esc_val[3] = 400;
                 armed = true;
                 Serial.println("spin20");
             } else if(serial_cmd == "stop") {
-                esc1_val = 68;
-                esc2_val = 68;
-                esc3_val = 68;
-                esc4_val = 68;
+                esc_val[0] = 68;
+                esc_val[1] = 68;
+                esc_val[2] = 68;
+                esc_val[3] = 68;
                 armed = true;
                 Serial.println("stop");
             } else if(serial_cmd == "halt") {
-                esc1_val = 0;
-                esc2_val = 0;
-                esc3_val = 0;
-                esc4_val = 0;
+                esc_val[0] = 0;
+                esc_val[1] = 0;
+                esc_val[2] = 0;
+                esc_val[3] = 0;
                 armed = true;
                 Serial.println("halt");
             } else if(serial_cmd == "reset") {
-                esc1_val = 0;
-                esc2_val = 0;
-                esc3_val = 0;
-                esc4_val = 0;
+                esc_val[0] = 0;
+                esc_val[1] = 0;
+                esc_val[2] = 0;
+                esc_val[3] = 0;
                 command_trigger = true;
                 armed = false;
                 Serial.println("reset");
             } else if(serial_cmd == "disarm") {
-                esc1_val = 0;
-                esc2_val = 0;
-                esc3_val = 0;
-                esc4_val = 0;
+                esc_val[0] = 0;
+                esc_val[1] = 0;
+                esc_val[2] = 0;
+                esc_val[3] = 0;
                 armed = false;
                 Serial.println("disarm");
             } else if(serial_cmd == "reverse") {
-                esc1_val = 21;
-                esc2_val = 21;
-                esc3_val = 21;
-                esc4_val = 21;
+                esc_val[0] = 21;
+                esc_val[1] = 21;
+                esc_val[2] = 21;
+                esc_val[3] = 21;
                 command_trigger = true;
                 armed = false;
                 Serial.println("reverse");
             } else if(serial_cmd == "forward") {
-                esc1_val = 20;
-                esc2_val = 20;
-                esc3_val = 20;
-                esc4_val = 20;
+                esc_val[0] = 20;
+                esc_val[1] = 20;
+                esc_val[2] = 20;
+                esc_val[3] = 20;
                 command_trigger = true;
                 armed = false;
                 Serial.println("forward");
             } else if(serial_cmd == "test") {
-                esc1_val = 400;
-                esc2_val = 400;
-                esc3_val = 400;
-                esc4_val = 400;
+                esc_val[0] = 400;
+                esc_val[1] = 400;
+                esc_val[2] = 400;
+                esc_val[3] = 400;
                 armed = true;
                 Serial.println("Test before delay");
                 delay(10000);
                 Serial.println("Test after delay");
-                esc1_val = 48;
-                esc2_val = 48;
-                esc3_val = 48;
-                esc4_val = 48;
+                esc_val[0] = 48;
+                esc_val[1] = 48;
+                esc_val[2] = 48;
+                esc_val[3] = 48;
             } else if(serial_cmd == "r1") {
                 reverse_esc = true;
                 command_trigger = true;
@@ -421,37 +359,37 @@ void loop() {
                 command_trigger = true;
                 Serial.println("f1");
             } else if(serial_cmd == "demo") {
-                esc1_val = 0;
-                esc2_val = 0;
-                esc3_val = 0;
-                esc4_val = 0;
+                esc_val[0] = 0;
+                esc_val[1] = 0;
+                esc_val[2] = 0;
+                esc_val[3] = 0;
                 armed = true;
                 delay(50);
 
                 for(int i = 10; i < 40; i++) {
                     int val = i * 10 + 48;
-                    esc1_val = val;
-                    esc2_val = val;
-                    esc3_val = val;
-                    esc4_val = val;
+                    esc_val[0] = val;
+                    esc_val[1] = val;
+                    esc_val[2] = val;
+                    esc_val[3] = val;
                     Serial.printf("ESC Speed: %i\n", i);
             
                     delay(100);
                 }    
                 for(int i = 40; i > 10; i--) {
                     int val = i * 10 + 48;
-                    esc1_val = val;
-                    esc2_val = val;
-                    esc3_val = val;
-                    esc4_val = val;
+                    esc_val[0] = val;
+                    esc_val[1] = val;
+                    esc_val[2] = val;
+                    esc_val[3] = val;
                     Serial.printf("ESC Speed: %i\n", i);
             
                     delay(100);
                 } 
-                esc1_val = 100;
-                esc2_val = 100;
-                esc3_val = 100;
-                esc4_val = 100;
+                esc_val[0] = 100;
+                esc_val[1] = 100;
+                esc_val[2] = 100;
+                esc_val[3] = 100;
                 armed = true;
             } else if(serial_cmd == "rdemo") {
                 Serial.println("rdemo");
@@ -459,37 +397,37 @@ void loop() {
                 command_trigger = true;
                 delay(20);
 
-                esc1_val = 0;
-                esc2_val = 0;
-                esc3_val = 0;
-                esc4_val = 0;
+                esc_val[0] = 0;
+                esc_val[1] = 0;
+                esc_val[2] = 0;
+                esc_val[3] = 0;
                 armed = true;
                 delay(50);
 
                 for(int i = 10; i < 40; i++) {
                     int val = i * 10 + 48;
-                    esc1_val = val;
-                    esc2_val = val;
-                    esc3_val = val;
-                    esc4_val = val;
+                    esc_val[0] = val;
+                    esc_val[1] = val;
+                    esc_val[2] = val;
+                    esc_val[3] = val;
                     Serial.printf("ESC Speed: %i\n", i);
             
                     delay(100);
                 }    
                 for(int i = 40; i > 10; i--) {
                     int val = i * 10 + 48;
-                    esc1_val = val;
-                    esc2_val = val;
-                    esc3_val = val;
-                    esc4_val = val;
+                    esc_val[0] = val;
+                    esc_val[1] = val;
+                    esc_val[2] = val;
+                    esc_val[3] = val;
                     Serial.printf("ESC Speed: %i\n", i);
             
                     delay(100);
                 } 
-                esc1_val = 100;
-                esc2_val = 100;
-                esc3_val = 100;
-                esc4_val = 100;
+                esc_val[0] = 100;
+                esc_val[1] = 100;
+                esc_val[2] = 100;
+                esc_val[3] = 100;
                 armed = true;
 
             } else if(serial_cmd == "fdemo") {
@@ -498,37 +436,37 @@ void loop() {
                 command_trigger = true;
                 delay(20);
 
-                esc1_val = 0;
-                esc2_val = 0;
-                esc3_val = 0;
-                esc4_val = 0;
+                esc_val[0] = 0;
+                esc_val[1] = 0;
+                esc_val[2] = 0;
+                esc_val[3] = 0;
                 armed = true;
                 delay(50);
 
                 for(int i = 10; i < 40; i++) {
                     int val = i * 10 + 48;
-                    esc1_val = val;
-                    esc2_val = val;
-                    esc3_val = val;
-                    esc4_val = val;
+                    esc_val[0] = val;
+                    esc_val[1] = val;
+                    esc_val[2] = val;
+                    esc_val[3] = val;
                     Serial.printf("ESC Speed: %i\n", i);
             
                     delay(100);
                 }    
                 for(int i = 40; i > 10; i--) {
                     int val = i * 10 + 48;
-                    esc1_val = val;
-                    esc2_val = val;
-                    esc3_val = val;
-                    esc4_val = val;
+                    esc_val[0] = val;
+                    esc_val[1] = val;
+                    esc_val[2] = val;
+                    esc_val[3] = val;
                     Serial.printf("ESC Speed: %i\n", i);
             
                     delay(100);
                 } 
-                esc1_val = 100;
-                esc2_val = 100;
-                esc3_val = 100;
-                esc4_val = 100;
+                esc_val[0] = 100;
+                esc_val[1] = 100;
+                esc_val[2] = 100;
+                esc_val[3] = 100;
                 armed = true;
             }
         } 
