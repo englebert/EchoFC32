@@ -98,14 +98,14 @@ void txDshot(uint8_t esc_id, uint16_t value, bool telemetry) {
         // T1H + T1L
         if(dshot_packet & 0x8000) {
             esc_dshotPacket[i].level0    = 1;
-            esc_dshotPacket[i].duration0 = 400;
+            esc_dshotPacket[i].duration0 = 395;
             esc_dshotPacket[i].level1    = 0;
-            esc_dshotPacket[i].duration1 = 134;
+            esc_dshotPacket[i].duration1 = 130;
 
         // T0H + T0L
         } else {
             esc_dshotPacket[i].level0    = 1;
-            esc_dshotPacket[i].duration0 = 199;
+            esc_dshotPacket[i].duration0 = 180;
             esc_dshotPacket[i].level1    = 0;
             esc_dshotPacket[i].duration1 = 335;
         }
@@ -236,12 +236,12 @@ void loop() {
     delay(3000);
 
     command_trigger = true;
-    command_val = 21;
+    command_val = 20;
 
-    esc_val[0] = 58;
-    esc_val[1] = 58;
-    esc_val[2] = 58;
-    esc_val[3] = 58;
+    esc_val[0] = 48;
+    esc_val[1] = 48;
+    esc_val[2] = 48;
+    esc_val[3] = 48;
     armed = true;
 
     delay(200);
@@ -293,10 +293,10 @@ void loop() {
                 armed = true;
                 Serial.println("spin20");
             } else if(serial_cmd == "stop") {
-                esc_val[0] = 68;
-                esc_val[1] = 68;
-                esc_val[2] = 68;
-                esc_val[3] = 68;
+                esc_val[0] = 48;
+                esc_val[1] = 48;
+                esc_val[2] = 48;
+                esc_val[3] = 48;
                 armed = true;
                 Serial.println("stop");
             } else if(serial_cmd == "halt") {
